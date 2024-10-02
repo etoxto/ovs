@@ -5,6 +5,8 @@
 #include <ctime>
 #include <fstream>
 #include <filesystem>
+#include <unistd.h>
+#include <sys/resource.h>
 
 namespace fs = std::filesystem;
 
@@ -16,6 +18,25 @@ double sigmoid(double x) {
 // Производная сигмоида для обратного распространения ошибки
 double sigmoid_derivative(double x) {
     return x * (1.0 - x);
+}
+
+// Функция для получения текущего объема потребляемой памяти (Linux)
+size_t get_memory_usage() {
+    std::ifstream status_file("/proc/self/status");
+    std::string line;
+    size_t memory_kb = 0;
+
+    while (std::getline(status_file, line)) {
+        if (line.substr(0, 6) == "VmRSS:") {
+            std::istringstream iss(line);
+            std::string key;
+            iss >> key >> memory_kb;  // Чтение ключа "VmRSS" и значения памяти в КБ
+            break;
+        }
+    }
+
+    status_file.close();
+    return memory_kb;
 }
 
 class NeuralNetwork {
@@ -85,8 +106,23 @@ public:
 
     // Прямое распространение для предсказания
     std::vector<double> predict(std::vector<double> inputs) {
+
+        auto start_time = std::chrono::high_resolution_clock::now();
+        size_t memory_before = get_memory_usage();
+
         std::vector<double> hidden_outputs = compute_layer(inputs, input_hidden_weights);
-        return compute_layer(hidden_outputs, hidden_output_weights);
+        std::vector<double> outputs = compute_layer(hidden_outputs, hidden_output_weights);
+
+        size_t memory_after = get_memory_usage();
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+        // Вывод времени и потребляемой памяти для вычисления выхода
+        std::cout << "Время вычисления выхода сети: " << duration << " миллисекунд" << std::endl;
+        std::cout << "Память использована во время вычисления выхода сети: " << (memory_after - memory_before) << " КБ" << std::endl;
+
+
+        return outputs;
     }
 
 private:
@@ -199,6 +235,12 @@ int main() {
     int epochs = 1000;
     double learning_rate = 0.01;
 
+    // Замер времени
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    // Замер использования памяти до обучения
+    size_t memory_before = get_memory_usage();
+
     // Путь к директории с обучающими файлами
     std::string circle_train_directory = "/home/etoxto/Documents/itmo/ovs/lab1/train/circle";
     std::string circle_valid_directory = "/home/etoxto/Documents/itmo/ovs/lab1/valid/circle";
@@ -211,12 +253,23 @@ int main() {
 
     // Обучение сети на данных из файлов
     load_and_train_from_directory(nn, circle_train_directory, target_output_circle, learning_rate, epochs);
-    load_and_valid_from_directory(nn, circle_valid_directory, "круга");
-
     load_and_train_from_directory(nn, square_train_directory, target_output_square, learning_rate, epochs);
-    load_and_valid_from_directory(nn, square_valid_directory, "квадрата");
-
     load_and_train_from_directory(nn, triangle_train_directory, target_output_triangle, learning_rate, epochs);
+
+    // Замер времени после обучения
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+    // Замер использования памяти после обучения
+    size_t memory_after = get_memory_usage();
+
+    // Вывод результатов
+    std::cout << "Время обучения: " << duration << " миллисекунд" << std::endl;
+    std::cout << "Память использована во время обучения: " << (memory_after - memory_before) << " КБ" << std::endl;
+
+
+    load_and_valid_from_directory(nn, circle_valid_directory, "круга");
+    load_and_valid_from_directory(nn, square_valid_directory, "квадрата");
     load_and_valid_from_directory(nn, triangle_valid_directory, "треугольника");
 
     return 0;
